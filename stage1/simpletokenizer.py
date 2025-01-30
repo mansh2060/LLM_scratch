@@ -1,38 +1,25 @@
-from text_reader import extracted_data
+from text_reader import vocab
 import re
-#variable initialize , encoder(return ids) , decoder(return text)
-
 class SimpleTokenizerV1:
-        def __init__(self,extracted_data):
-            self.extracted_data=extracted_data
+    def __init__(self,vocab):
+        self.str_to_int=vocab
+        self.int_to_str={idx:tokens for tokens,idx in vocab.items()}
 
-        def encoder(self):
-            text=re.split(r'([,.?;_:"\']|--|\s)',self.extracted_data)
-            text=[word.strip() for word in text if word.strip()] 
-            vocab={tokens: idx for idx,tokens in enumerate(text)} # dictionary key-value
-            text=[word if word in vocab else '<|unk|>' for word in vocab ]
-            vocab={tokens: idx for idx,tokens in enumerate(text)} 
-            ids=[vocab[words] for words in vocab]
-            return vocab,ids
-        
-        def decoder(self,ids):
-            vocab,_=self.encoder()
-            decoded_tokens=[]
-            index_to_token={idx:tokens for tokens,idx in vocab.items()}
-            for index in ids:
-                if index in index_to_token:
-                    decoded_tokens.append(index_to_token[index])
-            text=" ".join(decoded_tokens)
-            text=re.sub(r'\s+([,.?";:!()\'])',r'\1',text)
-            return text
+    def encoder(self,text):
+        tokens=re.split(r'([,.:;?_!"()\']|--|\s)',text)
+        processed_tokens=[word.strip() for word in tokens if word.strip()]
+        processed_tokens=[elements if elements in self.str_to_int else "|<unk>|" for elements in processed_tokens]
+        ids=[self.str_to_int[items] for items in processed_tokens]
+        return ids
 
-simpletokens=SimpleTokenizerV1(extracted_data)
-_,ids=simpletokens.encoder()
+    def decoder(self,ids):
+        text=" ".join([self.int_to_str[idx] for idx in ids])
+        processed_text=re.sub(r'\s+([,.?!"()\'])', r'\1',text)
+        return processed_text
+
+tokenizer=SimpleTokenizerV1(vocab)
+text="Hello! Well!--even through the prism of Hermia's tears I felt able  to face the fact with equanimity. "
+ids=tokenizer.encoder(text)
+text=tokenizer.decoder(ids)
 print(ids)
-text=simpletokens.decoder(ids)  
 print(text)
- 
-
-            
-         
-
