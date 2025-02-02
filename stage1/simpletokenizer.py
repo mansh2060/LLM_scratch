@@ -1,3 +1,4 @@
+#encoder decoder for LLM 
 from text_reader import vocab
 import re
 class SimpleTokenizerV1:
