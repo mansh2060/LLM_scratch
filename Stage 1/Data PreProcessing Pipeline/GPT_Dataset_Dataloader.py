@@ -1,3 +1,5 @@
+#this programme is the combo of tokenization , encoder , decoder , input_output pairing, dataset , dataloader
+
 from torch.utils.data import Dataset,DataLoader
 import tiktoken
 import torch
@@ -28,11 +30,9 @@ def create_data_loader(text,batch_size=4,max_length=256,stride=128,shuffle=True,
                drop_last=True,
                num_workers=0)
     return dataloader
-
-
-with open("extracted_data.txt",'r',encoding='utf-8') as file:
+'''
+with open("The_Verdict.txt",'r',encoding='utf-8') as file:
     text=file.read()
-
 data_loader=create_data_loader(text,batch_size=1,max_length=12,stride=4,shuffle=False)
 
 data_iter=iter(data_loader)
@@ -42,3 +42,4 @@ third_batch=next(data_iter)
 print(first_batch)
 print(second_batch)
 print(third_batch)
+'''
