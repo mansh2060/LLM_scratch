@@ -20,7 +20,7 @@ inputs_2 = torch.tensor(
 )
 batch = torch.stack((inputs_1,inputs_2))
 print(batch)
-print(batch.shape)     # shape of the batch 
+print(batch.shape)     # shape of the batch    batch_size * num_tokens * d_in
 
 class CasualAttention(nn.Module):
     def __init__(self,d_in,d_out,context_length,dropout,wkv_bias=False):
@@ -33,7 +33,7 @@ class CasualAttention(nn.Module):
         self.register_buffer('mask',torch.triu(torch.ones(context_length,context_length),diagonal=1))
 
     def forward(self,inputs):
-        batch_size,num_of_queries,embedding_dimension=inputs.shape
+        batch_size,num_of_queries,d_in=inputs.shape
         keys = self.w_key(inputs)
         query = self.w_query(inputs)
         values = self.w_value(inputs)
