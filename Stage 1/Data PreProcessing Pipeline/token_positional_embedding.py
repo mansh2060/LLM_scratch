@@ -14,7 +14,7 @@ with open("The_Verdict.txt",'r',encoding='utf-8') as file:
     text=file.read()
 
 vocab_size=50257
-embedding_dim=256
+embedding_dim=768
 context_length=8
 token_embedding_layer=torch.nn.Embedding(vocab_size,embedding_dim)
 positional_embedding_layer=torch.nn.Embedding(context_length,embedding_dim)

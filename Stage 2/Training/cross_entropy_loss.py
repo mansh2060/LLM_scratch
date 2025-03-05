@@ -1,11 +1,6 @@
 import torch
 import torch.nn as nn
 import tiktoken
-"""
-token _ ids  -->  token  embedding generate    vocab_size * embedding_dimension
-positional_embedding    context_length * embedding_dimension
-drop_embedding ---->  dropout()
-"""
 GPT_CONFIG_124M = {
     "vocab_size" : 50257,
     "context_length" : 1024,
@@ -146,43 +141,59 @@ class GPTModel(nn.Module):
         logits = self.out_head(input_embeddings)
         return logits
     
-batch = torch.tensor([[6109, 3626, 6100,  345],
-        [6109, 1110, 6622,  257]])
-
-torch.manual_seed(123)
 model = GPTModel(GPT_CONFIG_124M)
-out = model(batch)
-print("Input batch:\n", batch)
-print("\nOutput shape:", out.shape)
-print(out)
+inputs = torch.tensor(
+    [[16833,3626,6100],
+     [40,1107,588]])
+target = torch.tensor(
+    [[3626,6100,345],
+     [107,588,11311]]
+)
+with torch.no_grad():
+    logits=model(inputs)
+probabilities = torch.softmax(logits,dim=-1)
+print(probabilities)
+print(probabilities.shape)
+output = torch.argmax(probabilities,dim=-1,keepdim=True)
+print(output)
 
-total_params = sum(p.numel() for p in model.parameters())
-print(f"Total number of parameters: {total_params:,}")
-
-print("Token embedding layer shape:", model.token_embeddings.weight.shape)
-print("Output layer shape:", model.out_head.weight.shape)
-
-total_params_gpt2 = total_params - sum(p.numel() for p in model.out_head.parameters())
-print(f"Number of trainable parameters considering weight tying: {total_params_gpt2:,}")
-
-total_size_bytes = total_params * 4 #A
-total_size_mb = total_size_bytes / (1024 * 1024) #B
-print(f"Total size of the model: {total_size_mb:.2f} MB")
-"""
 tokenizer = tiktoken.get_encoding("gpt2")
-batch = []
-text1 = "Every efforts move you"
-text2 = "Every day holds a"
-token_ids_1 = tokenizer.encode(text1)
-token_ids_2 = tokenizer.encode(text2)
-batch.append(torch.tensor(token_ids_1))
-batch.append(torch.tensor(token_ids_2))
-batch = torch.stack(batch,dim=0)
-print(batch)
 
-torch.manual_seed(123)
-model = DummyGPTModel(GPT_CONFIG_124M)
-logits = model(batch)
-print("Outputs shape",logits.shape)
-print(logits)
-"""
+def text_to_tokenids(text):
+    token_ids = tokenizer.encode(text,allowed_special={"<|endoftext|>"})
+    token_ids = torch.tensor(token_ids).unsqueeze(0)
+    return token_ids
+
+def tokenids_to_text(ids):
+    ids = ids.squeeze(0)
+    text = tokenizer.decode(ids.tolist())
+    return text
+target_text = tokenids_to_text(target[0])
+predicted_text=tokenids_to_text(output[0].flatten())
+print(target_text)
+print(predicted_text)
+
+batch_idx = 0
+probabilities_1 = probabilities[batch_idx,[0,1,2],target[batch_idx]]
+print("Probabilities 1 ",probabilities_1)
+
+batch_idx = 1
+probabilities_2 =probabilities[batch_idx,[0,1,2],target[batch_idx]]
+print("Probabilities 2 ",probabilities_2)
+
+log_probabs = torch.log(torch.cat((probabilities_1,probabilities_2)))
+print(log_probabs)
+
+log_probabs = log_probabs * -1
+print(log_probabs)
+
+print(log_probabs.mean())
+
+flat_logits = logits.flatten(0,1)
+flat_targets = target.flatten()
+
+loss = torch.nn.functional.cross_entropy(flat_logits,flat_targets)
+print(loss)
+
+perplexity=torch.exp(loss)
+print(perplexity)

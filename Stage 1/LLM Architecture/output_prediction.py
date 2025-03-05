@@ -1,11 +1,8 @@
 import torch
 import torch.nn as nn
 import tiktoken
-"""
-token _ ids  -->  token  embedding generate    vocab_size * embedding_dimension
-positional_embedding    context_length * embedding_dimension
-drop_embedding ---->  dropout()
-"""
+tokenizer = tiktoken.get_encoding("gpt2")
+
 GPT_CONFIG_124M = {
     "vocab_size" : 50257,
     "context_length" : 1024,
@@ -15,6 +12,7 @@ GPT_CONFIG_124M = {
     "drop_rate" : 0.1,
     "qkv_bias" : False
 }
+
 class LayerNormalization(nn.Module):
     def __init__(self,embedding_dimension):
         super().__init__()
@@ -146,43 +144,50 @@ class GPTModel(nn.Module):
         logits = self.out_head(input_embeddings)
         return logits
     
-batch = torch.tensor([[6109, 3626, 6100,  345],
-        [6109, 1110, 6622,  257]])
+def generate_text_simple(model, idx, max_new_tokens, context_size):
+    # idx is (batch, n_tokens) array of indices in the current context
+    for _ in range(max_new_tokens):
+        
+        # Crop current context if it exceeds the supported context size
+        # E.g., if LLM supports only 5 tokens, and the context size is 10
+        # then only the last 5 tokens are used as context
+        idx_cond = idx[:, -context_size:]
+        
+        # Get the predictions
+        with torch.no_grad():
+            logits = model(idx_cond)
+        
+        # Focus only on the last time step
+        # (batch, n_tokens, vocab_size) becomes (batch, vocab_size)
+        logits = logits[:, -1, :]  
 
-torch.manual_seed(123)
+        # Apply softmax to get probabilities
+        probas = torch.softmax(logits, dim=-1)  # (batch, vocab_size)
+
+        # Get the idx of the vocab entry with the highest probability value
+        idx_next = torch.argmax(probas, dim=-1, keepdim=True)  # (batch, 1)
+
+        # Append sampled index to the running sequence
+        idx = torch.cat((idx, idx_next), dim=1)  # (batch, n_tokens+1)
+
+    return idx
+
 model = GPTModel(GPT_CONFIG_124M)
-out = model(batch)
-print("Input batch:\n", batch)
-print("\nOutput shape:", out.shape)
-print(out)
+start_context = "Hello, I am"
+encoded = tokenizer.encode(start_context)
+print("encoded:", encoded)      
+encoded_tensor = torch.tensor(encoded).unsqueeze(0) #A
+print("encoded_tensor.shape:", encoded_tensor.shape)
 
-total_params = sum(p.numel() for p in model.parameters())
-print(f"Total number of parameters: {total_params:,}")
+model.eval() #A
+out = generate_text_simple(
+model=model,
+idx=encoded_tensor,
+max_new_tokens=6,
+context_size=GPT_CONFIG_124M["context_length"]
+)
+print("Output:", out)
+print("Output length:", len(out[0]))
 
-print("Token embedding layer shape:", model.token_embeddings.weight.shape)
-print("Output layer shape:", model.out_head.weight.shape)
-
-total_params_gpt2 = total_params - sum(p.numel() for p in model.out_head.parameters())
-print(f"Number of trainable parameters considering weight tying: {total_params_gpt2:,}")
-
-total_size_bytes = total_params * 4 #A
-total_size_mb = total_size_bytes / (1024 * 1024) #B
-print(f"Total size of the model: {total_size_mb:.2f} MB")
-"""
-tokenizer = tiktoken.get_encoding("gpt2")
-batch = []
-text1 = "Every efforts move you"
-text2 = "Every day holds a"
-token_ids_1 = tokenizer.encode(text1)
-token_ids_2 = tokenizer.encode(text2)
-batch.append(torch.tensor(token_ids_1))
-batch.append(torch.tensor(token_ids_2))
-batch = torch.stack(batch,dim=0)
-print(batch)
-
-torch.manual_seed(123)
-model = DummyGPTModel(GPT_CONFIG_124M)
-logits = model(batch)
-print("Outputs shape",logits.shape)
-print(logits)
-"""
+decoded_text = tokenizer.decode(out.squeeze(0).tolist())
+print(decoded_text)

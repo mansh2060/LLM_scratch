@@ -1,20 +1,123 @@
+import os
+import urllib.request
+import tiktoken
+from torch.utils.data import Dataset,DataLoader
 import torch
 import torch.nn as nn
-import tiktoken
-"""
-token _ ids  -->  token  embedding generate    vocab_size * embedding_dimension
-positional_embedding    context_length * embedding_dimension
-drop_embedding ---->  dropout()
-"""
+
+file_path = "the-verdict.txt"
+url = "https://raw.githubusercontent.com/rasbt/LLMs-from-scratch/main/ch02/01_main-chapter-code/the-verdict.txt"
+
+if not os.path.exists(file_path):
+    with urllib.request.urlopen(url) as response:
+        text_data = response.read().decode('utf-8')
+    with open(file_path, "w", encoding="utf-8") as file:
+        file.write(text_data)
+else:
+    with open(file_path, "r", encoding="utf-8") as file:
+        text_data = file.read()
+
+print(text_data[:99])
+print(text_data[-99:])
+
+total_tokens= len(text_data)
+print(total_tokens)
+
+
 GPT_CONFIG_124M = {
     "vocab_size" : 50257,
-    "context_length" : 1024,
+    "context_length" : 256,
     "embed_dim" : 768,
     "n_heads" : 12,
     "n_layers" : 12,
     "drop_rate" : 0.1,
     "qkv_bias" : False
 }
+
+tokenizer=tiktoken.get_encoding("gpt2")
+token_ids = tokenizer.encode(text_data)
+print(len(token_ids))
+
+train_ratio = 0.90
+split_index = int(train_ratio * len(text_data))
+training_data = text_data[:split_index]
+validation_data = text_data[split_index:]
+
+class GPTDataset(Dataset):
+    def __init__(self,text,context_length,stride,tokenizer):
+        super().__init__()
+        self.input_index = []
+        self.output_index = []
+        token_ids=tokenizer.encode(text,allowed_special={"<|endoftext|>"})
+        for i in range(0,len(token_ids)-context_length,stride):
+            self.input_chunk = token_ids[i:context_length+i]
+            self.output_chunk = token_ids[i+1:context_length+i+1]
+            self.input_index.append(torch.tensor(self.input_chunk))
+            self.output_index.append(torch.tensor(self.output_chunk))
+
+    def __len__(self):
+        return len(self.input_index)
+    
+    def __getitem__(self, index):
+        return self.input_index[index],self.output_index[index]
+    
+def create_data_loader(text,batch_size=9,context_length=256,stride=256,shuffle=True,drop_last=True,num_workers=0):
+    gpt_dataset=GPTDataset(text,context_length,stride,tokenizer)
+    dataloader = DataLoader(gpt_dataset,
+                            batch_size=batch_size,
+                            shuffle=True,
+                            drop_last=True,
+                            num_workers=0
+                            )
+    return dataloader
+
+torch.manual_seed(123)
+
+train_loader = create_data_loader(training_data,
+                                  batch_size=2,
+                                  context_length=GPT_CONFIG_124M["context_length"],
+                                  stride=GPT_CONFIG_124M["context_length"],
+                                  drop_last=True,
+                                  shuffle=True,
+                                  num_workers=0
+                                  )
+
+test_loader = create_data_loader(validation_data,
+                                 batch_size=2,
+                                 context_length =GPT_CONFIG_124M["context_length"],
+                                 stride=GPT_CONFIG_124M["context_length"],
+                                 drop_last=False,
+                                 shuffle=False,
+                                 num_workers=0)
+
+if total_tokens * train_ratio < GPT_CONFIG_124M["context_length"]:
+    print("Not Enough Tokens to Train The Dataset")
+
+if total_tokens * (1-train_ratio) < GPT_CONFIG_124M["context_length"]:
+    print("Not Enough Tokens To Validate The Dataset")
+
+print("Train_loader Shape")
+for x, y in train_loader:
+    print(x.shape,y.shape)
+print(len(train_loader))
+
+print("Test_loader shape")
+for x,y in test_loader:
+    print(x.shape,y.shape)
+print(len(test_loader))
+
+train_tokens = 0
+for input_batch, _ in train_loader:
+    train_tokens += input_batch.numel()
+
+val_tokens = 0
+for input_batch, _ in test_loader:
+    val_tokens += input_batch.numel()
+
+print("Train Tokens         :",train_tokens)
+print("Validation Tokens    :",val_tokens)
+print("Total Tokens         :",train_tokens + val_tokens)
+
 class LayerNormalization(nn.Module):
     def __init__(self,embedding_dimension):
         super().__init__()
@@ -146,43 +249,37 @@ class GPTModel(nn.Module):
         logits = self.out_head(input_embeddings)
         return logits
     
-batch = torch.tensor([[6109, 3626, 6100,  345],
-        [6109, 1110, 6622,  257]])
+def calculate_loss_batch(input_batch,target_batch,model,device):
+        input_batch,target_batch = input_batch.to(device) , target_batch.to(device)
+        model = GPTModel(GPT_CONFIG_124M)
+        logits = model(input_batch)
+        loss = torch.nn.functional.cross_entropy(logits.flatten(0,1),target_batch.flatten())
+        return loss
 
-torch.manual_seed(123)
+def calculate_loss_data_loader(data_loader,model,device,num_batches=None):
+        total_loss = 0
+        if len(data_loader) == 0:
+            return float("nan")
+        elif num_batches is None:
+            num_batches = len(data_loader)
+        else:
+            num_batches = min(len(data_loader),num_batches)
+        for i,(input_batch,target_batch) in enumerate(data_loader):
+            if i < num_batches:
+                loss = calculate_loss_batch(input_batch,target_batch,model,device)
+                total_loss += loss.item()
+            else:
+                break
+        return total_loss /num_batches
 model = GPTModel(GPT_CONFIG_124M)
-out = model(batch)
-print("Input batch:\n", batch)
-print("\nOutput shape:", out.shape)
-print(out)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model.to(device) 
 
-total_params = sum(p.numel() for p in model.parameters())
-print(f"Total number of parameters: {total_params:,}")
 
-print("Token embedding layer shape:", model.token_embeddings.weight.shape)
-print("Output layer shape:", model.out_head.weight.shape)
+torch.manual_seed(123) 
+with torch.no_grad(): 
+    train_loss = calculate_loss_data_loader(train_loader, model, device)
+    val_loss = calculate_loss_data_loader(test_loader, model, device)
 
-total_params_gpt2 = total_params - sum(p.numel() for p in model.out_head.parameters())
-print(f"Number of trainable parameters considering weight tying: {total_params_gpt2:,}")
-
-total_size_bytes = total_params * 4 #A
-total_size_mb = total_size_bytes / (1024 * 1024) #B
-print(f"Total size of the model: {total_size_mb:.2f} MB")
-"""
-tokenizer = tiktoken.get_encoding("gpt2")
-batch = []
-text1 = "Every efforts move you"
-text2 = "Every day holds a"
-token_ids_1 = tokenizer.encode(text1)
-token_ids_2 = tokenizer.encode(text2)
-batch.append(torch.tensor(token_ids_1))
-batch.append(torch.tensor(token_ids_2))
-batch = torch.stack(batch,dim=0)
-print(batch)
-
-torch.manual_seed(123)
-model = DummyGPTModel(GPT_CONFIG_124M)
-logits = model(batch)
-print("Outputs shape",logits.shape)
-print(logits)
-"""
+print("Training loss:", train_loss)
+print("Validation loss:", val_loss)
